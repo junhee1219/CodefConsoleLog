@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>에러 통계 - {{ date }}</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f5f5f5; color: #333; }
+        .container { max-width: 1400px; margin: 0 auto; padding: 20px; }
+        h1 { margin-bottom: 8px; font-size: 24px; }
+        .nav { margin-bottom: 20px; font-size: 14px; }
+        .nav a { color: #2563eb; text-decoration: none; }
+        .nav a:hover { text-decoration: underline; }
+        .date-form { background: #fff; padding: 16px; border-radius: 8px; margin-bottom: 20px; display: flex; gap: 12px; align-items: center; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+        .date-form label { font-size: 14px; font-weight: 600; }
+        .date-form input[type="date"] { padding: 6px 10px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px; }
+        .btn { padding: 7px 16px; border: none; border-radius: 4px; cursor: pointer; font-size: 13px; font-weight: 600; }
+        .btn-primary { background: #2563eb; color: #fff; }
+        .summary { font-size: 16px; color: #666; margin-bottom: 20px; }
+        .summary strong { color: #333; font-size: 20px; }
+        .cards-section { margin-bottom: 32px; }
+        .cards-section h2 { font-size: 18px; margin-bottom: 12px; }
+        .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; }
+        .card { background: #fff; border-radius: 8px; padding: 16px; box-shadow: 0 1px 3px rgba(0,0,0,.08); display: flex; flex-direction: column; gap: 8px; }
+        .card-label { font-size: 13px; color: #666; }
+        .card-value { font-size: 28px; font-weight: 700; color: #111; }
+        .card-name { font-size: 15px; font-weight: 600; color: #333; }
+        .card-bar { height: 6px; border-radius: 3px; background: #e5e7eb; overflow: hidden; }
+        .card-bar-fill { height: 100%; border-radius: 3px; }
+        .fill-red { background: #ef4444; }
+        .fill-blue { background: #3b82f6; }
+        .fill-green { background: #22c55e; }
+        .fill-purple { background: #a855f7; }
+    </style>
+</head>
+<body>
+<div class="container">
+    <div class="nav"><a href="/">&larr; 리스트로 돌아가기</a></div>
+    <h1>에러 통계</h1>
+
+    <form class="date-form" method="get" action="/stats">
+        <label>시작</label>
+        <input type="date" name="date_from" value="{{ date_from }}">
+        <label>종료</label>
+        <input type="date" name="date_to" value="{{ date_to }}">
+        <button type="submit" class="btn btn-primary">조회</button>
+    </form>
+
+    <div class="summary">{{ date_from }}{% if date_from != date_to %} ~ {{ date_to }}{% endif %} 총 에러: <strong>{{ total }}건</strong></div>
+
+    {% if total == 0 %}
+    <p style="color:#999; padding:40px 0; text-align:center;">해당 기간에 데이터가 없습니다.</p>
+    {% else %}
+
+    <div class="cards-section">
+        <h2>기관분류별</h2>
+        <div class="cards">
+            {% for biz_type, biz_name, cnt in by_biz %}
+            <div class="card">
+                <div class="card-name">{{ biz_name or biz_type or '미분류' }}</div>
+                <div class="card-value">{{ cnt }}</div>
+                <div class="card-bar"><div class="card-bar-fill fill-purple" style="width:{{ (cnt / total * 100) | round(1) }}%"></div></div>
+                <div class="card-label">{{ (cnt / total * 100) | round(1) }}%</div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+
+    <div class="cards-section">
+        <h2>에러코드별</h2>
+        <div class="cards">
+            {% for code, cnt in by_err_code %}
+            <div class="card" title="{{ err_code_msg_map.get(code, '') }}">
+                <div class="card-name">{{ code or '미분류' }}</div>
+                <div style="font-size:11px; color:#999; margin-top:-4px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">{{ err_code_msg_map.get(code, '') }}</div>
+                <div class="card-value">{{ cnt }}</div>
+                <div class="card-bar"><div class="card-bar-fill fill-red" style="width:{{ (cnt / total * 100) | round(1) }}%"></div></div>
+                <div class="card-label">{{ (cnt / total * 100) | round(1) }}%</div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+
+    <div class="cards-section">
+        <h2>에러코드별 기관 내역</h2>
+        <div class="cards" style="grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));">
+            {% for code in sorted_err_codes %}
+            <div class="card">
+                <div style="display:flex; justify-content:space-between; align-items:center;">
+                    <div class="card-name" style="color:#dc2626;">{{ code or '미분류' }}</div>
+                    <div class="card-value" style="font-size:20px;">{{ err_code_totals[code] }}건</div>
+                </div>
+                <div style="font-size:11px; color:#999; margin-bottom:4px;">{{ err_code_msg_map.get(code, '') }}</div>
+                <div style="margin-top:8px;">
+                    {% for org, cnt in err_code_org_map[code] %}
+                    <div style="display:flex; justify-content:space-between; align-items:center; padding:4px 0; border-bottom:1px solid #f5f5f5;">
+                        <span style="font-size:13px;">{{ get_org_name(org) }} <span style="color:#999; font-size:11px;">기관코드 : {{ org or '-' }}</span></span>
+                        <span style="font-size:13px; font-weight:600;">{{ cnt }}건</span>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+
+    <div class="cards-section">
+        <h2>기관별 (Organization)</h2>
+        <div class="cards">
+            {% for org, cnt in by_org %}
+            <div class="card">
+                <div class="card-name">{{ get_org_name(org) }}</div>
+                <div class="card-label">기관코드 : {{ org or '-' }}</div>
+                <div class="card-value">{{ cnt }}</div>
+                <div class="card-bar"><div class="card-bar-fill fill-blue" style="width:{{ (cnt / total * 100) | round(1) }}%"></div></div>
+                <div class="card-label">{{ (cnt / total * 100) | round(1) }}%</div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+
+    <div class="cards-section">
+        <h2>상품명별</h2>
+        <div class="cards">
+            {% for name, cnt in by_product %}
+            <div class="card">
+                <div class="card-name">{{ name or '미분류' }}</div>
+                <div class="card-value">{{ cnt }}</div>
+                <div class="card-bar"><div class="card-bar-fill fill-green" style="width:{{ (cnt / total * 100) | round(1) }}%"></div></div>
+                <div class="card-label">{{ (cnt / total * 100) | round(1) }}%</div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+
+    {% endif %}
+</div>
+</body>
+</html>

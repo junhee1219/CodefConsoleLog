@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>에러 상세 - {{ report.mid if report else 'Not Found' }}</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f5f5f5; color: #333; }
+        .container { max-width: 900px; margin: 0 auto; padding: 20px; }
+        h1 { margin-bottom: 20px; font-size: 22px; }
+        .back { display: inline-block; margin-bottom: 16px; color: #2563eb; text-decoration: none; font-size: 14px; }
+        .back:hover { text-decoration: underline; }
+        .card { background: #fff; border-radius: 8px; padding: 24px; margin-bottom: 16px; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+        .card h2 { font-size: 16px; margin-bottom: 16px; padding-bottom: 8px; border-bottom: 1px solid #e5e7eb; }
+        .field { display: flex; padding: 8px 0; border-bottom: 1px solid #f5f5f5; }
+        .field:last-child { border-bottom: none; }
+        .field-label { width: 160px; font-size: 13px; color: #666; font-weight: 600; flex-shrink: 0; }
+        .field-value { font-size: 13px; word-break: break-all; }
+        .err-code { background: #fef2f2; color: #dc2626; padding: 2px 8px; border-radius: 4px; font-size: 12px; font-weight: 600; }
+        pre { background: #f8f9fa; padding: 16px; border-radius: 6px; font-size: 12px; overflow-x: auto; white-space: pre-wrap; word-break: break-all; line-height: 1.6; }
+    </style>
+</head>
+<body>
+<div class="container">
+    <a class="back" href="javascript:history.back();">&larr; 목록으로</a>
+
+    {% if report %}
+    <h1>에러 상세</h1>
+
+    <div class="card">
+        <h2>기본 정보</h2>
+        <div class="field"><div class="field-label">MID</div><div class="field-value">{{ report.mid }}</div></div>
+        <div class="field"><div class="field-label">발생시각</div><div class="field-value">{{ report.reg_time.strftime('%Y-%m-%d %H:%M:%S') if report.reg_time else '-' }}</div></div>
+        <div class="field"><div class="field-label">에러코드</div><div class="field-value"><span class="err-code">{{ report.err_code or '-' }}</span></div></div>
+        <div class="field"><div class="field-label">에러메시지</div><div class="field-value">{{ report.err_msg or '-' }}</div></div>
+        <div class="field"><div class="field-label">기관</div><div class="field-value">{{ report.business_type_name or '-' }} ({{ report.business_type or '-' }})</div></div>
+        <div class="field"><div class="field-label">상품코드</div><div class="field-value">{{ report.product_code or '-' }}</div></div>
+        <div class="field"><div class="field-label">상품명</div><div class="field-value">{{ report.product_name or '-' }}</div></div>
+        <div class="field"><div class="field-label">상품정보2</div><div class="field-value">{{ report.product_info2 or '-' }}</div></div>
+        <div class="field"><div class="field-label">상품정보3</div><div class="field-value">{{ report.product_info3 or '-' }}</div></div>
+    </div>
+
+    <div class="card">
+        <h2>상세 정보</h2>
+        <div class="field"><div class="field-label">Extra Message</div><div class="field-value">{{ report.detail_extra_message or '-' }}</div></div>
+        <div class="field"><div class="field-label">기관</div><div class="field-value">{{ get_org_name(report.detail_organization) }} ({{ report.detail_organization or '-' }})</div></div>
+        <div class="field"><div class="field-label">Connected ID</div><div class="field-value">{{ report.detail_connected_id or '-' }}</div></div>
+        <div class="field"><div class="field-label">요청수</div><div class="field-value">{{ report.detail_req_cnt if report.detail_req_cnt is not none else '-' }}</div></div>
+        <div class="field"><div class="field-label">성공수</div><div class="field-value">{{ report.detail_success_cnt if report.detail_success_cnt is not none else '-' }}</div></div>
+        <div class="field"><div class="field-label">에러수</div><div class="field-value">{{ report.detail_err_cnt if report.detail_err_cnt is not none else '-' }}</div></div>
+        <div class="field"><div class="field-label">수집시각</div><div class="field-value">{{ report.collected_at.strftime('%Y-%m-%d %H:%M:%S') if report.collected_at else '-' }}</div></div>
+    </div>
+
+    {% if cr %}
+    <div class="card">
+        <h2>Unicorn Request</h2>
+        {% for key, val in cr.items() %}
+        <div class="field">
+            <div class="field-label">{{ key }}</div>
+            <div class="field-value">
+                {% if key == 'organization' %}
+                    {{ get_org_name(val) }} ({{ val }})
+                {% else %}
+                    {{ val }}
+                {% endif %}
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    {% if report.detail_raw %}
+    <div class="card">
+        <h2>원본 JSON</h2>
+        <pre>{{ detail_json_pretty }}</pre>
+    </div>
+    {% endif %}
+
+    {% else %}
+    <h1>데이터를 찾을 수 없습니다.</h1>
+    {% endif %}
+</div>
+</body>
+</html>
