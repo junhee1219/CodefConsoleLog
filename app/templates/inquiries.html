@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Codef 문의 내역</title>
+    <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f5f5f5; color: #333; }
+        .container { max-width: 1100px; margin: 0 auto; padding: 20px; }
+        h1 { margin-bottom: 20px; font-size: 24px; }
+        .btn { padding: 7px 16px; border: none; border-radius: 4px; cursor: pointer; font-size: 13px; font-weight: 600; text-decoration: none; display: inline-block; }
+        .btn-primary { background: #2563eb; color: #fff; }
+        .btn-secondary { background: #e5e7eb; color: #333; }
+        .btn-sm { padding: 4px 10px; font-size: 12px; }
+        .info-box { background: #fffbeb; border: 1px solid #fcd34d; border-radius: 8px; padding: 12px 16px; margin-bottom: 16px; font-size: 13px; color: #92400e; display: flex; align-items: center; gap: 8px; }
+        .info-box img { width: 18px; height: 18px; }
+        table { width: 100%; border-collapse: collapse; background: #fff; border-radius: 8px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+        th { background: #f8f9fa; padding: 10px 12px; text-align: left; font-size: 12px; color: #666; font-weight: 600; border-bottom: 2px solid #e5e7eb; white-space: nowrap; }
+        td { padding: 10px 12px; border-bottom: 1px solid #f0f0f0; font-size: 13px; }
+        tr.clickable { cursor: pointer; }
+        tr.clickable:hover td { filter: brightness(.95); }
+        tr.active-row td { background: #e0e7ff !important; }
+        tr.month-0 td { background: #fff; }
+        tr.month-1 td { background: #f0f4ff; }
+        .lock-icon { width: 14px; height: 14px; vertical-align: middle; opacity: .5; }
+        .status-waiting { background: #fef3c7; color: #b45309; padding: 2px 8px; border-radius: 4px; font-size: 12px; font-weight: 600; white-space: nowrap; }
+        .status-done { background: #f0fdf4; color: #16a34a; padding: 2px 8px; border-radius: 4px; font-size: 12px; font-weight: 600; white-space: nowrap; }
+        .product-badge { background: #eff6ff; color: #2563eb; padding: 2px 8px; border-radius: 4px; font-size: 12px; font-weight: 600; white-space: nowrap; }
+        .reply-badge { background: #e0e7ff; color: #4338ca; padding: 2px 6px; border-radius: 4px; font-size: 11px; font-weight: 600; margin-left: 6px; }
+        .stats { font-size: 14px; color: #666; margin-bottom: 12px; }
+        .loading { text-align: center; padding: 40px; color: #999; }
+        a { color: #2563eb; text-decoration: none; }
+        a:hover { text-decoration: underline; }
+
+        /* 상세 모달 */
+        .detail-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.5); z-index: 1000; justify-content: center; align-items: center; padding: 40px; }
+        .detail-modal { background: #fff; border-radius: 12px; box-shadow: 0 8px 30px rgba(0,0,0,.25); width: 100%; max-width: 720px; max-height: 85vh; display: flex; flex-direction: column; overflow: hidden; }
+        .detail-header { background: #334155; color: #fff; padding: 14px 20px; display: flex; justify-content: space-between; align-items: center; flex-shrink: 0; }
+        .detail-header h3 { font-size: 15px; font-weight: 600; }
+        .detail-close { background: none; border: none; color: #fff; cursor: pointer; font-size: 20px; padding: 4px 8px; opacity: .7; }
+        .detail-close:hover { opacity: 1; }
+        .detail-scroll { overflow-y: auto; flex: 1; }
+        .detail-meta { padding: 16px 20px; background: #f8f9fa; border-bottom: 1px solid #e5e7eb; display: flex; gap: 20px; flex-wrap: wrap; font-size: 13px; }
+        .detail-meta .label { color: #666; font-weight: 600; margin-right: 4px; }
+        .detail-body { padding: 20px; }
+        .detail-content { font-size: 14px; line-height: 1.7; white-space: pre-wrap; word-break: break-word; }
+        .detail-content code, .detail-content pre { background: #f1f5f9; padding: 2px 6px; border-radius: 4px; font-size: 13px; }
+        .detail-content pre { display: block; padding: 12px; overflow-x: auto; margin: 8px 0; }
+        .reply-section { border-top: 2px solid #e5e7eb; padding: 16px 20px; }
+        .reply-section h4 { font-size: 14px; margin-bottom: 12px; color: #334155; }
+        .reply-item { background: #f8f9fa; border-radius: 8px; padding: 12px 16px; margin-bottom: 8px; }
+        .reply-item .reply-meta { font-size: 12px; color: #666; margin-bottom: 6px; }
+        .reply-item .reply-content { font-size: 13px; line-height: 1.6; white-space: pre-wrap; word-break: break-word; }
+        .reply-item.admin { background: #eff6ff; border-left: 3px solid #2563eb; }
+
+        /* 비밀번호 모달 */
+        .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.4); z-index: 999; justify-content: center; align-items: center; }
+        .modal-box { background: #fff; border-radius: 12px; padding: 24px; width: 340px; box-shadow: 0 8px 30px rgba(0,0,0,.2); }
+        .modal-box h3 { margin-bottom: 12px; font-size: 16px; }
+        .modal-box .hint { font-size: 12px; color: #666; margin-bottom: 12px; }
+        .pw-input-modal { padding: 8px 12px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px; width: 100%; text-align: center; letter-spacing: 2px; }
+        .modal-actions { display: flex; gap: 8px; margin-top: 16px; justify-content: flex-end; }
+        .modal-error { color: #dc2626; font-size: 13px; margin-top: 8px; display: none; }
+    </style>
+</head>
+<body>
+<div class="container">
+    <div style="display:flex; align-items:center; justify-content:space-between;">
+        <h1>Codef 문의 내역</h1>
+        <div style="display:flex; gap:8px;">
+            <a href="/" class="btn btn-secondary">에러 리포트</a>
+            <a href="/stats" class="btn btn-primary">통계</a>
+        </div>
+    </div>
+
+    <div class="info-box">
+        <img src="/static/icons/info.svg" alt="info">
+        <span>비밀번호 컨벤션: <b>15 + 해당일 DD</b> (예: 3월 5일 → <b>1505</b>). 2025-12-11 이전 글은 <b>MMDD</b> 형식.
+        <a href="https://finda.slack.com/archives/C084NCZKC4U/p1765415902979269" target="_blank" style="color:#92400e; text-decoration:underline; margin-left:4px;">관련 논의 (Slack)</a></span>
+    </div>
+
+    <div class="stats" id="statsLine">불러오는 중...</div>
+
+    <table>
+        <thead>
+        <tr>
+            <th></th>
+            <th>번호</th>
+            <th>상태</th>
+            <th>상품명</th>
+            <th>제목</th>
+            <th>등록일</th>
+            <th>수정일</th>
+        </tr>
+        </thead>
+        <tbody id="tbody">
+        <tr><td colspan="7" class="loading">불러오는 중...</td></tr>
+        </tbody>
+    </table>
+
+</div>
+
+<!-- 상세 모달 -->
+<div class="detail-overlay" id="detailOverlay">
+    <div class="detail-modal">
+        <div class="detail-header">
+            <h3 id="detailTitle">-</h3>
+            <button class="detail-close" onclick="closeDetail()">&times;</button>
+        </div>
+        <div class="detail-scroll">
+            <div class="detail-meta" id="detailMeta"></div>
+            <div class="detail-body">
+                <div class="detail-content" id="detailContent"></div>
+            </div>
+            <div class="reply-section" id="replySection" style="display:none;">
+                <h4 id="replyHeader">댓글</h4>
+                <div id="replyList"></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 비밀번호 모달 -->
+<div class="modal-overlay" id="pwModal">
+    <div class="modal-box">
+        <h3>비밀번호 입력</h3>
+        <div class="hint">컨벤션: 15 + 해당일 일자</div>
+        <input type="text" class="pw-input-modal" id="pwInput" autocomplete="off">
+        <div class="modal-error" id="pwError">비밀번호가 틀립니다.</div>
+        <div class="modal-actions">
+            <button class="btn btn-secondary" onclick="closePwModal()">취소</button>
+            <button class="btn btn-primary" id="pwSubmitBtn" onclick="submitPassword()">입력하기</button>
+        </div>
+    </div>
+</div>
+
+<script>
+    let boardItems = [];
+    let selectedItem = null;
+
+    // 2025-12-11 이전: MMDD, 이후: 15+DD
+    const PW_CHANGE_DATE = '2025-12-11';
+    function guessPassword(regTime) {
+        if (!regTime) return '';
+        const parts = regTime.split('-');
+        if (parts.length !== 3) return '';
+        if (regTime < PW_CHANGE_DATE) {
+            return parts[1] + parts[2];
+        }
+        return '15' + parts[2];
+    }
+
+    async function load() {
+        const tbody = document.getElementById('tbody');
+        try {
+            const res = await fetch('/api/inquiries?page=0&size=100');
+            const data = await res.json();
+            boardItems = data.items;
+
+            document.getElementById('statsLine').textContent = '총 ' + data.totalCount + '건';
+
+            if (!boardItems.length) {
+                tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:40px;color:#999;">문의 내역이 없습니다.</td></tr>';
+                return;
+            }
+
+            // 등록월 기준 색상 번갈아가기
+            let prevMonth = '', monthIdx = 0;
+            tbody.innerHTML = boardItems.map(function(r, i) {
+                const statusClass = r.answerStatus === '2' ? 'status-done' : 'status-waiting';
+                const statusText = r.answerValue || (r.answerStatus === '2' ? '답변완료' : '처리중');
+                const replyHtml = parseInt(r.replyCount) > 0
+                    ? '<span class="reply-badge">' + r.replyCount + '</span>'
+                    : '';
+                const curMonth = (r.regTime || '').substring(0, 7);
+                if (curMonth !== prevMonth) { if (prevMonth) monthIdx++; prevMonth = curMonth; }
+                const lockIcon = r.password === 'Y'
+                    ? '<img class="lock-icon" src="/static/icons/lock.svg" title="비밀번호 있음">'
+                    : '';
+                return '<tr class="clickable month-' + (monthIdx % 2) + '" data-idx="' + i + '" onclick="onRowClick(' + i + ')">' +
+                    '<td style="text-align:center;">' + lockIcon + '</td>' +
+                    '<td>' + r.no + '</td>' +
+                    '<td><span class="' + statusClass + '">' + statusText + '</span></td>' +
+                    '<td><span class="product-badge">' + (r.productName || '-') + '</span></td>' +
+                    '<td>' + (r.title || '-') + replyHtml + '</td>' +
+                    '<td style="white-space:nowrap;">' + (r.regTime || '-') + '</td>' +
+                    '<td style="white-space:nowrap;">' + (r.modTime || '-') + '</td>' +
+                    '</tr>';
+            }).join('');
+        } catch (e) {
+            tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:40px;color:#dc2626;">오류: ' + e.message + '</td></tr>';
+        }
+    }
+
+    function onRowClick(idx) {
+        selectedItem = boardItems[idx];
+        // 행 하이라이트
+        document.querySelectorAll('tr.active-row').forEach(function(el) { el.classList.remove('active-row'); });
+        document.querySelector('tr[data-idx="' + idx + '"]').classList.add('active-row');
+
+        if (selectedItem.password === 'N') {
+            // 비번 없는 글 → 바로 조회
+            fetchDetail('');
+        } else {
+            // 비밀번호 모달
+            const pw = guessPassword(selectedItem.regTime);
+            document.getElementById('pwInput').value = pw;
+            document.getElementById('pwError').style.display = 'none';
+            document.getElementById('pwSubmitBtn').disabled = false;
+            document.getElementById('pwSubmitBtn').textContent = '입력하기';
+            document.getElementById('pwModal').style.display = 'flex';
+            document.getElementById('pwInput').focus();
+            document.getElementById('pwInput').select();
+        }
+    }
+
+    function closePwModal() {
+        document.getElementById('pwModal').style.display = 'none';
+        document.querySelectorAll('tr.active-row').forEach(function(el) { el.classList.remove('active-row'); });
+    }
+
+    document.getElementById('pwModal').addEventListener('click', function(e) {
+        if (e.target === this) closePwModal();
+    });
+
+    document.getElementById('pwInput').addEventListener('keydown', function(e) {
+        if (e.key === 'Enter') submitPassword();
+    });
+
+    async function fetchDetail(pw) {
+        try {
+            const res = await fetch('/api/inquiry-detail', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ item: selectedItem, password: pw }),
+            });
+            const data = await res.json();
+            if (data.error) return data;
+            closePwModal();
+            showDetail(data);
+            return null;
+        } catch (e) {
+            return { error: '오류: ' + e.message };
+        }
+    }
+
+    async function submitPassword() {
+        const pw = document.getElementById('pwInput').value.trim();
+        if (!pw) return;
+        const btn = document.getElementById('pwSubmitBtn');
+        btn.disabled = true;
+        btn.textContent = '확인 중...';
+        document.getElementById('pwError').style.display = 'none';
+
+        const err = await fetchDetail(pw);
+        if (err) {
+            document.getElementById('pwError').textContent = err.error;
+            document.getElementById('pwError').style.display = 'block';
+            btn.disabled = false;
+            btn.textContent = '입력하기';
+        }
+    }
+
+    function formatContent(html) {
+        let text = html || '';
+        text = text.replace(/\r\n/g, '\n');
+        // ```코드블록``` → <pre>
+        text = text.replace(/```([\s\S]*?)```/g, '<pre>$1</pre>');
+        // <br> → 줄바꿈
+        text = text.replace(/<br\s*\/?>/gi, '\n');
+        // 마크다운 이스케이프 백슬래시 제거 (\. \( \) \! \# \* \[ \] 등)
+        text = text.replace(/\\([.()!#*\[\]\\`~>_{}\-+|])/g, '$1');
+        return text;
+    }
+
+    function showDetail(data) {
+        const board = data.board || {};
+        const panel = document.getElementById('detailPanel');
+
+        document.getElementById('detailTitle').textContent = board.title || '-';
+        document.getElementById('detailMeta').innerHTML =
+            '<span><span class="label">상품:</span>' + (board.productName || '-') + '</span>' +
+            '<span><span class="label">등록일:</span>' + (board.regTime || '-') + '</span>' +
+            '<span><span class="label">수정일:</span>' + (board.modTime || '-') + '</span>' +
+            '<span><span class="label">상태:</span>' + (board.answerValue || '-') + '</span>';
+
+        document.getElementById('detailContent').innerHTML = formatContent(board.content);
+
+        // 댓글
+        const replies = data.replyList || [];
+        const replySection = document.getElementById('replySection');
+        if (replies.length > 0) {
+            replySection.style.display = 'block';
+            document.getElementById('replyHeader').textContent = '댓글 (' + replies.length + ')';
+            document.getElementById('replyList').innerHTML = replies.map(function(r) {
+                const isAdmin = r.userNo !== '000004658';
+                return '<div class="reply-item' + (isAdmin ? ' admin' : '') + '">' +
+                    '<div class="reply-meta">' +
+                        (isAdmin ? '<b>Codef</b>' : '<b>' + (r.userName || '나') + '</b>') +
+                        ' &middot; ' + (r.regTime || '') +
+                    '</div>' +
+                    '<div class="reply-content">' + formatContent(r.replyContentValue || r.content || '') + '</div>' +
+                    '</div>';
+            }).join('');
+        } else {
+            replySection.style.display = 'none';
+        }
+
+        document.getElementById('detailOverlay').style.display = 'flex';
+    }
+
+    function closeDetail() {
+        document.getElementById('detailOverlay').style.display = 'none';
+        document.querySelectorAll('tr.active-row').forEach(function(el) { el.classList.remove('active-row'); });
+    }
+
+    document.getElementById('detailOverlay').addEventListener('click', function(e) {
+        if (e.target === this) closeDetail();
+    });
+
+    load();
+</script>
+</body>
+</html>

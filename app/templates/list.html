@@ -4,6 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Codef 에러 리포트</title>
+    <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f5f5f5; color: #333; }
@@ -28,7 +29,10 @@
         td { padding: 10px 12px; border-bottom: 1px solid #f0f0f0; font-size: 13px; }
         tr:hover { background: #f8f9fa; }
         .err-code { background: #fef2f2; color: #dc2626; padding: 2px 8px; border-radius: 4px; font-size: 12px; font-weight: 600; white-space: nowrap; }
-        .biz-badge { background: #eff6ff; color: #2563eb; padding: 2px 8px; border-radius: 4px; font-size: 12px; font-weight: 600; }
+        .biz-badge { padding: 2px 8px; border-radius: 4px; font-size: 12px; font-weight: 600; }
+        .biz-BK { background: #eff6ff; color: #2563eb; }
+        .biz-CD { background: #fef3c7; color: #b45309; }
+        .biz-PB { background: #f0fdf4; color: #16a34a; }
         .org-badge { background: #f0fdf4; color: #16a34a; padding: 2px 8px; border-radius: 4px; font-size: 12px; font-weight: 600; white-space: nowrap; }
         a { color: #2563eb; text-decoration: none; }
         a:hover { text-decoration: underline; }
@@ -48,8 +52,75 @@
 <div class="container">
     <div style="display:flex; align-items:center; justify-content:space-between;">
         <h1>Codef 에러 리포트</h1>
-        <a href="/stats" class="btn btn-primary" style="text-decoration:none;">통계</a>
+        <div style="display:flex; gap:8px; align-items:center;">
+            <button id="collectBtn" class="btn" style="background:#16a34a;color:#fff;" onclick="openCollect()">수집</button>
+            <a href="/inquiries" class="btn btn-secondary" style="text-decoration:none;">문의내역</a>
+            <a href="/stats" class="btn btn-primary" style="text-decoration:none;">통계</a>
+        </div>
     </div>
+
+    <!-- 수집 모달 -->
+    <div id="collectModal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,.4); z-index:999; justify-content:center; align-items:center;">
+        <div style="background:#fff; border-radius:12px; padding:24px; width:360px; box-shadow:0 8px 30px rgba(0,0,0,.2);">
+            <h3 style="margin-bottom:16px; font-size:16px;">데이터 수집</h3>
+            <div style="display:flex; flex-direction:column; gap:12px;">
+                <div style="display:flex; flex-direction:column; gap:4px;">
+                    <label style="font-size:12px; color:#666; font-weight:600;">시작일</label>
+                    <input type="date" id="collectStart" style="padding:6px 10px; border:1px solid #ddd; border-radius:4px; font-size:13px;">
+                </div>
+                <div style="display:flex; flex-direction:column; gap:4px;">
+                    <label style="font-size:12px; color:#666; font-weight:600;">종료일</label>
+                    <input type="date" id="collectEnd" style="padding:6px 10px; border:1px solid #ddd; border-radius:4px; font-size:13px;">
+                </div>
+            </div>
+            <div id="collectStatus" style="margin-top:12px; font-size:13px; color:#666; display:none;"></div>
+            <div style="display:flex; gap:8px; margin-top:20px; justify-content:flex-end;">
+                <button class="btn btn-secondary" onclick="closeCollect()">닫기</button>
+                <button id="collectRunBtn" class="btn" style="background:#16a34a;color:#fff;" onclick="runCollect()">수집 시작</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function openCollect() {
+            const today = new Date().toISOString().slice(0, 10);
+            document.getElementById('collectStart').value = today;
+            document.getElementById('collectEnd').value = today;
+            document.getElementById('collectStatus').style.display = 'none';
+            document.getElementById('collectRunBtn').disabled = false;
+            document.getElementById('collectModal').style.display = 'flex';
+        }
+        function closeCollect() {
+            document.getElementById('collectModal').style.display = 'none';
+        }
+        document.getElementById('collectModal').addEventListener('click', function(e) {
+            if (e.target === this) closeCollect();
+        });
+        async function runCollect() {
+            const start = document.getElementById('collectStart').value.replace(/-/g, '');
+            const end = document.getElementById('collectEnd').value.replace(/-/g, '');
+            if (!start || !end) { alert('날짜를 선택하세요.'); return; }
+            const statusEl = document.getElementById('collectStatus');
+            const runBtn = document.getElementById('collectRunBtn');
+            runBtn.disabled = true;
+            statusEl.style.display = 'block';
+            statusEl.style.color = '#2563eb';
+            statusEl.textContent = '수집 요청 중...';
+            try {
+                const url = start === end
+                    ? '/collect?date=' + start
+                    : '/collect-range?start=' + start + '&end=' + end;
+                const res = await fetch(url, { method: 'POST' });
+                const data = await res.json();
+                statusEl.style.color = '#16a34a';
+                statusEl.textContent = '수집이 시작되었습니다. 완료 시 Slack으로 알림이 옵니다.';
+            } catch (e) {
+                statusEl.style.color = '#dc2626';
+                statusEl.textContent = '오류: ' + e.message;
+                runBtn.disabled = false;
+            }
+        }
+    </script>
 
     <form class="filters" method="get" action="/">
         <div class="filter-group">
@@ -119,7 +190,7 @@
             <th>기관</th>
             <th>에러코드</th>
             <th>에러메시지</th>
-            <th>MID</th>
+            <th></th>
         </tr>
         </thead>
         <tbody>
@@ -135,12 +206,12 @@
             {% endif %}
         <tr class="date-row-{{ ns.color_idx }}">
             <td style="white-space:nowrap;">{{ r.reg_time.strftime('%H:%M:%S') if r.reg_time else '-' }}</td>
-            <td><span class="biz-badge">{{ r.business_type_name or r.business_type or '-' }}</span></td>
+            <td><span class="biz-badge biz-{{ r.business_type or '' }}">{{ r.business_type_name or r.business_type or '-' }}</span></td>
             <td>{{ r.product_name or '-' }}</td>
             <td><span class="org-badge" title="{{ r.detail_organization or '' }}">{{ get_org_name(r.detail_organization) }}</span></td>
             <td><span class="err-code">{{ r.err_code or '-' }}</span></td>
             <td class="truncate" title="{{ r.err_msg or '' }}">{{ r.err_msg or '-' }}</td>
-            <td><a href="/detail/{{ r.mid }}">{{ r.mid[:12] }}...</a></td>
+            <td><a href="/detail/{{ r.mid }}" class="btn btn-primary" style="padding:3px 10px;font-size:12px;text-decoration:none;color:#fff;">상세</a></td>
         </tr>
         {% endfor %}
         {% if not reports %}

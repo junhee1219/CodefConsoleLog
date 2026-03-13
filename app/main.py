@@ -3,11 +3,12 @@ from datetime import datetime, timedelta
 
 from fastapi import FastAPI, Depends, Request, Query
 from fastapi.responses import HTMLResponse
+from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import func, extract
 from sqlalchemy.orm import Session
 
-from app.config import COLLECT_INTERVAL_MINUTES
+from app.config import COLLECT_INTERVAL_MINUTES, CODEF_BASE_URL
 from app.database import engine, get_db, Base
 from app.models import ErrReport
 from app.org_codes import ORGANIZATION_MAP, get_org_name
@@ -15,6 +16,7 @@ from app.org_codes import ORGANIZATION_MAP, get_org_name
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
 app = FastAPI(title="Codef Error Report Viewer")
+app.mount("/static", StaticFiles(directory="app/static"), name="static")
 templates = Jinja2Templates(directory="app/templates")
 
 
@@ -55,12 +57,18 @@ def index(
         q = q.filter(ErrReport.business_type == business_type)
     if keyword:
         like = f"%{keyword}%"
-        q = q.filter(
+        matching_org_codes = [code for code, name in ORGANIZATION_MAP.items() if keyword in name]
+        conditions = (
             (ErrReport.err_msg.like(like))
             | (ErrReport.detail_extra_message.like(like))
             | (ErrReport.mid.like(like))
             | (ErrReport.detail_organization.like(like))
+            | (ErrReport.business_type_name.like(like))
+            | (ErrReport.err_code.like(like))
         )
+        if matching_org_codes:
+            conditions = conditions | ErrReport.detail_organization.in_(matching_org_codes)
+        q = q.filter(conditions)
     if date_from:
         try:
             q = q.filter(ErrReport.reg_time >= datetime.strptime(date_from, "%Y-%m-%d"))
@@ -245,6 +253,114 @@ def stats(
         "err_code_msg_map": err_code_msg_map,
         "get_org_name": get_org_name,
     })
+
+
+@app.get("/inquiries", response_class=HTMLResponse)
+def inquiries(request: Request):
+    return templates.TemplateResponse("inquiries.html", {"request": request})
+
+
+@app.get("/api/inquiries")
+def api_inquiries(
+    page: int = Query(0, ge=0),
+    size: int = Query(100, ge=1, le=200),
+):
+    """Codef 문의 목록 프록시"""
+    import httpx
+    from app.collector import login
+    with httpx.Client(headers={"Content-Type": "application/json"}) as client:
+        token = login(client)
+        resp = client.post(
+            f"{CODEF_BASE_URL}/board/getList",
+            headers={"Authorization": token},
+            json={
+                "startNo": 0, "length": 0,
+                "pageSize": size, "pageIndex": page,
+                "pageSizeOptions": [5, 10, 25, 100],
+                "boardType": "3", "no": 0,
+                "category": "", "categoryValue": "", "titleEn": "",
+                "password": "", "viewCount": 0,
+                "userNo": "000004658", "userEmail": "",
+                "replyContent": "N", "replyContentValue": "",
+                "replyCount": 0, "delYn": "N",
+                "modTime": "", "regTime": "", "attachmentId": "",
+                "productCode": "", "productName": "",
+                "answerStatus": "", "answerValue": "",
+                "serviceType": "", "userName": "", "company": "",
+            },
+        )
+        resp.raise_for_status()
+        data = resp.json()
+    rj = data.get("resultJson", {})
+    return {"items": rj.get("boardList", []), "totalCount": rj.get("totalCount", 0)}
+
+
+@app.post("/api/inquiry-detail")
+def api_inquiry_detail(request_body: dict):
+    """Codef 문의 상세 프록시: checkPassword → initContent"""
+    import httpx
+    from app.collector import login
+    board_item = request_body.get("item", {})
+    password = request_body.get("password", "")
+    board_item["password"] = password
+
+    has_password = board_item.get("password") == "Y"
+
+    with httpx.Client(headers={"Content-Type": "application/json"}) as client:
+        token = login(client)
+        auth_headers = {"Authorization": token, "Content-Type": "application/json"}
+
+        condition = {
+            "startNo": 0, "length": 0, "pageSize": 10, "pageIndex": 0,
+            "pageSizeOptions": [5, 10, 25, 100],
+            "boardType": "3", "no": str(board_item["no"]),
+            "category": board_item.get("category", ""),
+            "categoryValue": "", "title": "", "titleEn": "", "content": "",
+            "password": "", "viewCount": 0, "userNo": "", "userEmail": "",
+            "replyContent": "N", "replyContentValue": "", "replyCount": 0,
+            "delYn": "N", "modTime": "", "regTime": "", "attachmentId": "",
+            "productCode": "", "productName": "", "answerStatus": "",
+            "answerValue": "", "serviceType": "", "userName": "", "company": "",
+        }
+
+        if has_password:
+            # Step 1: checkPassword
+            board_item["password"] = password
+            resp = client.post(
+                f"{CODEF_BASE_URL}/board/checkPassword",
+                headers=auth_headers,
+                json=board_item,
+            )
+            resp.raise_for_status()
+            cp_data = resp.json()
+            if cp_data.get("result") != "SUCCESS":
+                return {"error": "비밀번호가 틀립니다.", "detail": cp_data}
+
+            import urllib.parse
+            key_encoded = cp_data["resultJson"]["value"]
+            key = urllib.parse.unquote(key_encoded)
+        else:
+            key = ""
+
+        # Step 2: initContent
+        payload = {"condition": condition}
+        if has_password:
+            payload["key"] = key
+        resp2 = client.post(
+            f"{CODEF_BASE_URL}/board/initContent",
+            headers=auth_headers,
+            json=payload,
+        )
+        resp2.raise_for_status()
+        ic_data = resp2.json()
+
+    rj = ic_data.get("resultJson", {})
+    return {
+        "board": rj.get("board", {}),
+        "replyList": rj.get("replyList", []),
+        "attachmentList": rj.get("attachmentList", []),
+        "replyAttachmentList": rj.get("replyAttachmentList", []),
+    }
 
 
 @app.post("/collect")
