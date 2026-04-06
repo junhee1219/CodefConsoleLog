@@ -74,6 +74,36 @@ def fetch_detail(client: httpx.Client, token: str, mid: str) -> dict | None:
     return json.loads(raw_value)
 
 
+async def fetch_detail_async(aclient: httpx.AsyncClient, token: str, mid: str) -> tuple[str, dict | None]:
+    try:
+        resp = await aclient.post(
+            f"{CODEF_BASE_URL}/errReport/getErrDetail",
+            json={"mid": mid},
+            headers={**HEADERS, "Authorization": token},
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        if data.get("result") != "SUCCESS":
+            return mid, None
+        raw_value = data.get("resultJson", {}).get("value")
+        if not raw_value:
+            return mid, None
+        return mid, json.loads(raw_value)
+    except Exception:
+        return mid, None
+
+
+async def fetch_details_parallel(token: str, mids: list[str], concurrency: int = 10) -> dict[str, dict | None]:
+    import asyncio
+    sem = asyncio.Semaphore(concurrency)
+    async with httpx.AsyncClient(timeout=30) as aclient:
+        async def _fetch(mid: str):
+            async with sem:
+                return await fetch_detail_async(aclient, token, mid)
+        results = await asyncio.gather(*[_fetch(m) for m in mids])
+    return dict(results)
+
+
 def parse_reg_time(s: str | None) -> datetime | None:
     if not s:
         return None
@@ -221,54 +251,55 @@ def collect_date_range(start_date: str, end_date: str):
                 new_reports = []
 
                 if err_list:
+                    import asyncio
                     db: Session = SessionLocal()
                     try:
+                        # 신규 항목만 필터
+                        new_items = []
                         for item in err_list:
                             mid = item.get("mid")
                             if not mid:
                                 continue
                             exists = db.query(ErrReport.id).filter(ErrReport.mid == mid).first()
-                            if exists:
-                                continue
+                            if not exists:
+                                new_items.append(item)
 
-                            try:
-                                detail = fetch_detail(client, token, mid)
-                            except httpx.HTTPStatusError:
-                                try:
-                                    time.sleep(2)
-                                    token = _login_with_retry(client)
-                                    detail = fetch_detail(client, token, mid)
-                                except Exception:
-                                    logger.warning(f"  {mid} detail 수집 실패, 스킵")
-                                    detail = None
+                        if new_items:
+                            # detail 병렬 호출
+                            mids = [item["mid"] for item in new_items]
+                            detail_map = asyncio.run(fetch_details_parallel(token, mids, concurrency=10))
 
-                            report = ErrReport(
-                                mid=mid,
-                                log_id=item.get("logId"),
-                                reg_time=parse_reg_time(item.get("regTime")),
-                                product_code=item.get("productCode"),
-                                product_name=item.get("productName"),
-                                business_type=item.get("businessType"),
-                                business_type_name=BIZ_TYPE_NAME_MAP.get(item.get("businessType"), item.get("businessTypeName")),
-                                product_info2=item.get("productInfo2"),
-                                product_info3=item.get("productInfo3"),
-                                err_type=item.get("errType"),
-                                err_code=item.get("errCode"),
-                                err_msg=item.get("errMsg"),
-                                detail_raw=json.dumps(detail, ensure_ascii=False) if detail else None,
-                                detail_extra_message=detail.get("result", {}).get("extraMessage") if detail else None,
-                                detail_organization=detail.get("cr", {}).get("organization") if detail else None,
-                                detail_connected_id=detail.get("cr", {}).get("connectedId") if detail else None,
-                                detail_err_cnt=detail.get("summary", {}).get("errCnt") if detail else None,
-                                detail_success_cnt=detail.get("summary", {}).get("successCnt") if detail else None,
-                                detail_req_cnt=detail.get("summary", {}).get("reqCnt") if detail else None,
-                            )
-                            db.add(report)
-                            total_new += 1
-                            new_reports.append({
-                                "err_code": item.get("errCode"),
-                                "organization": detail.get("cr", {}).get("organization") if detail else "",
-                            })
+                            for item in new_items:
+                                mid = item["mid"]
+                                detail = detail_map.get(mid)
+
+                                report = ErrReport(
+                                    mid=mid,
+                                    log_id=item.get("logId"),
+                                    reg_time=parse_reg_time(item.get("regTime")),
+                                    product_code=item.get("productCode"),
+                                    product_name=item.get("productName"),
+                                    business_type=item.get("businessType"),
+                                    business_type_name=BIZ_TYPE_NAME_MAP.get(item.get("businessType"), item.get("businessTypeName")),
+                                    product_info2=item.get("productInfo2"),
+                                    product_info3=item.get("productInfo3"),
+                                    err_type=item.get("errType"),
+                                    err_code=item.get("errCode"),
+                                    err_msg=item.get("errMsg"),
+                                    detail_raw=json.dumps(detail, ensure_ascii=False) if detail else None,
+                                    detail_extra_message=detail.get("result", {}).get("extraMessage") if detail else None,
+                                    detail_organization=detail.get("cr", {}).get("organization") if detail else None,
+                                    detail_connected_id=detail.get("cr", {}).get("connectedId") if detail else None,
+                                    detail_err_cnt=detail.get("summary", {}).get("errCnt") if detail else None,
+                                    detail_success_cnt=detail.get("summary", {}).get("successCnt") if detail else None,
+                                    detail_req_cnt=detail.get("summary", {}).get("reqCnt") if detail else None,
+                                )
+                                db.add(report)
+                                total_new += 1
+                                new_reports.append({
+                                    "err_code": item.get("errCode"),
+                                    "organization": detail.get("cr", {}).get("organization") if detail else "",
+                                })
                         db.commit()
                     finally:
                         db.close()
