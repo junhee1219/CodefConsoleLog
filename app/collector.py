@@ -179,13 +179,26 @@ def collect_date(date: str):
         client.close()
 
 
+def _login_with_retry(client: httpx.Client, retries: int = 3, delay: float = 5.0) -> str:
+    import time
+    for attempt in range(retries):
+        try:
+            return login(client)
+        except Exception:
+            if attempt == retries - 1:
+                raise
+            logger.warning(f"로그인 실패, {delay}초 후 재시도 ({attempt + 1}/{retries})")
+            time.sleep(delay)
+
+
 def collect_date_range(start_date: str, end_date: str):
     """start_date ~ end_date (YYYYMMDD) 범위를 한 세션으로 수집한다."""
+    import time
     from datetime import timedelta
     logger.info(f"일괄 수집 시작: {start_date} ~ {end_date}")
     client = httpx.Client(timeout=30)
     try:
-        token = login(client)
+        token = _login_with_retry(client)
         logger.info("로그인 성공")
 
         current = datetime.strptime(start_date, "%Y%m%d")
@@ -195,69 +208,80 @@ def collect_date_range(start_date: str, end_date: str):
         while current <= end:
             date_str = current.strftime("%Y%m%d")
             try:
-                result = fetch_list(client, token, date_str)
-            except httpx.HTTPStatusError:
-                token = login(client)
-                result = fetch_list(client, token, date_str)
-
-            rj = result.get("resultJson", {})
-            err_list = rj.get("errList", [])
-            total_new = 0
-            new_reports = []
-
-            if err_list:
-                db: Session = SessionLocal()
                 try:
-                    for item in err_list:
-                        mid = item.get("mid")
-                        if not mid:
-                            continue
-                        exists = db.query(ErrReport.id).filter(ErrReport.mid == mid).first()
-                        if exists:
-                            continue
+                    result = fetch_list(client, token, date_str)
+                except httpx.HTTPStatusError:
+                    time.sleep(3)
+                    token = _login_with_retry(client)
+                    result = fetch_list(client, token, date_str)
 
-                        try:
-                            detail = fetch_detail(client, token, mid)
-                        except httpx.HTTPStatusError:
-                            token = login(client)
-                            detail = fetch_detail(client, token, mid)
+                rj = result.get("resultJson", {})
+                err_list = rj.get("errList", [])
+                total_new = 0
+                new_reports = []
 
-                        report = ErrReport(
-                            mid=mid,
-                            log_id=item.get("logId"),
-                            reg_time=parse_reg_time(item.get("regTime")),
-                            product_code=item.get("productCode"),
-                            product_name=item.get("productName"),
-                            business_type=item.get("businessType"),
-                            business_type_name=BIZ_TYPE_NAME_MAP.get(item.get("businessType"), item.get("businessTypeName")),
-                            product_info2=item.get("productInfo2"),
-                            product_info3=item.get("productInfo3"),
-                            err_type=item.get("errType"),
-                            err_code=item.get("errCode"),
-                            err_msg=item.get("errMsg"),
-                            detail_raw=json.dumps(detail, ensure_ascii=False) if detail else None,
-                            detail_extra_message=detail.get("result", {}).get("extraMessage") if detail else None,
-                            detail_organization=detail.get("cr", {}).get("organization") if detail else None,
-                            detail_connected_id=detail.get("cr", {}).get("connectedId") if detail else None,
-                            detail_err_cnt=detail.get("summary", {}).get("errCnt") if detail else None,
-                            detail_success_cnt=detail.get("summary", {}).get("successCnt") if detail else None,
-                            detail_req_cnt=detail.get("summary", {}).get("reqCnt") if detail else None,
-                        )
-                        db.add(report)
-                        total_new += 1
-                        new_reports.append({
-                            "err_code": item.get("errCode"),
-                            "organization": detail.get("cr", {}).get("organization") if detail else "",
-                        })
-                    db.commit()
-                finally:
-                    db.close()
+                if err_list:
+                    db: Session = SessionLocal()
+                    try:
+                        for item in err_list:
+                            mid = item.get("mid")
+                            if not mid:
+                                continue
+                            exists = db.query(ErrReport.id).filter(ErrReport.mid == mid).first()
+                            if exists:
+                                continue
 
-            total_all += total_new
-            logger.info(f"  {date_str} 완료: 신규 {total_new}건")
-            if new_reports:
-                send_slack(new_reports, date_str)
+                            try:
+                                detail = fetch_detail(client, token, mid)
+                            except httpx.HTTPStatusError:
+                                try:
+                                    time.sleep(2)
+                                    token = _login_with_retry(client)
+                                    detail = fetch_detail(client, token, mid)
+                                except Exception:
+                                    logger.warning(f"  {mid} detail 수집 실패, 스킵")
+                                    detail = None
+
+                            report = ErrReport(
+                                mid=mid,
+                                log_id=item.get("logId"),
+                                reg_time=parse_reg_time(item.get("regTime")),
+                                product_code=item.get("productCode"),
+                                product_name=item.get("productName"),
+                                business_type=item.get("businessType"),
+                                business_type_name=BIZ_TYPE_NAME_MAP.get(item.get("businessType"), item.get("businessTypeName")),
+                                product_info2=item.get("productInfo2"),
+                                product_info3=item.get("productInfo3"),
+                                err_type=item.get("errType"),
+                                err_code=item.get("errCode"),
+                                err_msg=item.get("errMsg"),
+                                detail_raw=json.dumps(detail, ensure_ascii=False) if detail else None,
+                                detail_extra_message=detail.get("result", {}).get("extraMessage") if detail else None,
+                                detail_organization=detail.get("cr", {}).get("organization") if detail else None,
+                                detail_connected_id=detail.get("cr", {}).get("connectedId") if detail else None,
+                                detail_err_cnt=detail.get("summary", {}).get("errCnt") if detail else None,
+                                detail_success_cnt=detail.get("summary", {}).get("successCnt") if detail else None,
+                                detail_req_cnt=detail.get("summary", {}).get("reqCnt") if detail else None,
+                            )
+                            db.add(report)
+                            total_new += 1
+                            new_reports.append({
+                                "err_code": item.get("errCode"),
+                                "organization": detail.get("cr", {}).get("organization") if detail else "",
+                            })
+                        db.commit()
+                    finally:
+                        db.close()
+
+                total_all += total_new
+                logger.info(f"  {date_str} 완료: 신규 {total_new}건")
+                if new_reports:
+                    send_slack(new_reports, date_str)
+            except Exception as e:
+                logger.error(f"  {date_str} 수집 실패, 다음 날짜로 넘어감: {e}")
+
             current += timedelta(days=1)
+            time.sleep(1)
 
         logger.info(f"일괄 수집 완료: {start_date}~{end_date} / 총 신규 {total_all}건")
     finally:
